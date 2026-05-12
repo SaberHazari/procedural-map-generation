@@ -1,13 +1,6 @@
 #include "utils.h"
 #include <cstdio>
 #include <cmath>
-#include <windows.h>
-#include <psapi.h>
-
-struct memory_snapshot
-{
-    size_t working_set_size;
-};
 
 struct map_info
 {
@@ -63,40 +56,13 @@ struct terrain_map
     int height_cells;
 };
 
-internal void GetMemoryUsage(memory_snapshot *snapshot)
+internal real32 LatticeNoise(int x, int y, const perm_table *table)
 {
-    HANDLE process = GetCurrentProcess();
-    PROCESS_MEMORY_COUNTERS pmc;
-    if(GetProcessMemoryInfo(process, &pmc, sizeof(pmc)))
-    {
-        snapshot->working_set_size = pmc.WorkingSetSize;
-    }
-    else
-    {
-        snapshot->working_set_size = 0;
-    }
+    int index = table->perm[(table->perm[x & 255] + y) & 255];
+    return table->gradients[index];
 }
 
-internal uint32 LinearCongruentialGenerator(uint32 state)
-{
-    const uint32 a = 1664525;
-    const uint32 c = 1013904223;
-    return a * state + c;
-}
-
-internal real32 LatticeNoise(int x, int y, uint32 seed)
-{
-    uint32 hash = seed;
-    uint32 prime1 = 374761393;
-    uint32 prime2 = 668265263;
-    hash ^= (uint32)x * prime1;
-    hash ^= (uint32)y * prime2;
-    hash = LinearCongruentialGenerator(hash);
-    constexpr real32 inv_scale = 1.0f / 32767.5f;
-    return (real32)(hash & 0xFFFF) * inv_scale - 1.0f;
-}
-
-internal real32 ValueNoise(real32 fx, real32 fy, uint32 seed)
+internal real32 ValueNoise(real32 fx, real32 fy, const perm_table *table)
 {
     int ix = (int)std::floorf(fx);
     int iy = (int)std::floorf(fy);
@@ -106,10 +72,10 @@ internal real32 ValueNoise(real32 fx, real32 fy, uint32 seed)
     real32 ux = tx * tx * (3.0f - 2.0f * tx);
     real32 uy = ty * ty * (3.0f - 2.0f * ty);
 
-    real32 v00 = LatticeNoise(ix, iy, seed);
-    real32 v10 = LatticeNoise(ix + 1, iy, seed);
-    real32 v01 = LatticeNoise(ix, iy + 1, seed);
-    real32 v11 = LatticeNoise(ix + 1, iy + 1, seed);
+    real32 v00 = LatticeNoise(ix, iy, table);
+    real32 v10 = LatticeNoise(ix + 1, iy, table);
+    real32 v01 = LatticeNoise(ix, iy + 1, table);
+    real32 v11 = LatticeNoise(ix + 1, iy + 1, table);
 
     real32 lerp_value = v00 + (v10 - v00) * ux + 
                         (v01 - v00) * uy + 
@@ -127,8 +93,10 @@ internal real32 FractionalBrownianMotion(real32 fx, real32 fy,
 
     for(int oct = 0; oct < map_info::octaves; ++oct)
     {
+        perm_table table;
+        PermutationTable(&table, seed + (uint32)oct * 997);
         value += ValueNoise(fx * frequency, fy * frequency, 
-            seed + (uint32)oct * 997) * amplitude;
+            &table) * amplitude;
         max_value += amplitude;
         amplitude *= map_info::persistence;
         frequency *= map_info::lacunarity;
@@ -157,7 +125,7 @@ internal void GenerateHeightMap(terrain_map *map, uint32 seed)
 
 internal void GenerateMoistureMap(terrain_map *map, uint32 seed)
 {
-    uint32 moisture_seed = seed ^ 0xA5A5A5A5;
+    uint32 moisture_seed = seed ^ 0xDEADBEEF;
 
     for(int i = 0; i < map_info::cell_count; ++i)
     {
@@ -209,16 +177,38 @@ internal void TallyBiomes(terrain_map *map, int counts[biome_count])
         { counts[map->biome_map[i]]++; }
 }
 
-internal void RenderMap(terrain_map *map)
+internal void RenderMapToFile(terrain_map *map, const char *filename)
 {
+    biome_info info;
+    FILE *fp = fopen(filename, "w");
+    if (!fp) {
+        printf("Error: could not open file %s\n", filename);
+        return;
+    }
     for(int y = 0; y < map->height_cells; ++y)
     {
         for(int x = 0; x < map->width_cells; ++x)
         {
-            putchar(biome_info().biome_glyphs[map->biome_map[y * map->width_cells + x]]);
+            uint8 biome_id = map->biome_map[y * map->width_cells + x];
+            char glyph = info.biome_glyphs[biome_id];
+            fputc(glyph, fp);
         }
-        printf("\n");
+        fputc('\n', fp);
     }
+
+    int biome_counts[biome_count];
+    TallyBiomes(map, biome_counts);
+
+    fprintf(fp, "\nBiome Coverage:\n");
+    for(int i = 0; i < biome_count; ++i)
+    {
+        fprintf(fp, " %-12s: %c %4d cells (%5.2f%%)\n", 
+            info.biome_names[i], 
+            info.biome_glyphs[i], 
+            biome_counts[i], 
+            (real32)biome_counts[i] / (real32)map_info::cell_count * 100.0f);
+    }
+    fclose(fp);
 }
 
 int main()
@@ -241,26 +231,14 @@ int main()
     GenerateMoistureMap(&map, seed);
     ClassifyBiomes(&map);
 
-    printf("\nGenerated Map(Seed: %u):\n\n", seed);
-    RenderMap(&map);
-
-    int biome_counts[biome_count];
-    TallyBiomes(&map, biome_counts);
-
-    printf("\nBiome Coverage:\n");
-    for(int i = 0; i < biome_count; ++i)
-    {
-        printf(" %-12s: %c %4d cells (%5.2f%%)\n", 
-            biome_info().biome_names[i], 
-            biome_info().biome_glyphs[i], 
-            biome_counts[i], 
-            (real32)biome_counts[i] / (real32)map_info::cell_count * 100.0f);
-    }
+    printf("\nGenerated Map(Seed: %u):\n", seed);
+    RenderMapToFile(&map, "generated_map.txt");
 
     QueryPerformanceCounter(&end_time);
-    real32 elapsed_milliseconds = (real32)(end_time.QuadPart - start_time.QuadPart) / 
+    real32 total_elapsed = (real32)(end_time.QuadPart - start_time.QuadPart) / 
         (real32)frequency.QuadPart * 1000.0f;
-    printf("\nGeneration Time: %.02f ms\n", elapsed_milliseconds);
+    
+    printf("\nTotal Generation Time: %.02f ms\n", total_elapsed);
 
     GetMemoryUsage(&mem_after);
     real32 memory_delta_kb = (real32)(mem_after.working_set_size - mem_before.working_set_size) / 1024.0f;
