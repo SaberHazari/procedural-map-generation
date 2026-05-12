@@ -4,8 +4,8 @@
 
 struct map_info
 {
-    global_variable constexpr int width = 64;
-    global_variable constexpr int height = 32;
+    global_variable constexpr int width = 128;
+    global_variable constexpr int height = 64;
     global_variable constexpr int cell_count = width * height;
     global_variable constexpr int octaves = 4;
     global_variable constexpr real32 persistence = 0.5f;
@@ -18,8 +18,13 @@ enum biome : uint8
     biome_deepwater = 0,
     biome_water,
     biome_beach,
+    biome_desert,
+    biome_savanna,
     biome_plains,
     biome_forest,
+    biome_rainforest,
+    biome_taiga,
+    biome_tundra,
     biome_mountain,
     biome_snow,
     biome_count
@@ -31,8 +36,13 @@ struct biome_info
         "Deep Water",
         "Water",
         "Beach",
+        "Desert",
+        "Savanna",
         "Plains",
         "Forest",
+        "Rainforest",
+        "Taiga",
+        "Tundra",
         "Mountain",
         "Snow"
     };
@@ -40,8 +50,13 @@ struct biome_info
         '~',
         '-',
         '.',
+        '+',
+        '`',
         ',',
         'T',
+        '@',
+        't',
+        '!',
         '^',
         '*'
     };
@@ -51,6 +66,7 @@ struct terrain_map
 {
     real32 height_map[map_info::cell_count];
     real32 moisture_map[map_info::cell_count];
+    real32 temperature_map[map_info::cell_count];
     uint8 biome_map[map_info::cell_count];
     int width_cells;
     int height_cells;
@@ -137,33 +153,49 @@ internal void GenerateMoistureMap(terrain_map *map, uint32 seed)
     }
 }
 
+internal void GenerateTemperatureMap(terrain_map *map, uint32 seed)
+{
+    uint32 temp_seed = seed ^ 0xBEEFDEAD;
+
+    for(int i = 0; i < map_info::cell_count; ++i)
+    {
+        int x = i % map->width_cells;
+        int y = i / map->width_cells;
+        real32 t = FractionalBrownianMotion((real32)x, 
+            (real32)y, temp_seed);
+        map->temperature_map[i] = (t + 1.0f) * 0.5f;
+    }
+}
+
 internal void ClassifyBiomes(terrain_map *map)
 {
     real32 *h = map->height_map;
     real32 *m = map->moisture_map;
+    real32 *t = map->temperature_map;
     uint8 *b = map->biome_map;
 
     for(int i = 0; i < map_info::cell_count; ++i)
     {
-        if(h[i] < 0.3f)
+        if(h[i] < 0.15f) { b[i] = biome_deepwater; continue; }
+        if(h[i] < 0.30f) { b[i] = biome_water; continue; }
+        if(h[i] < 0.35f) { b[i] = biome_beach; continue; }
+        if(h[i] > 0.75f) { b[i] = (t[i] < 0.30f) ? biome_snow : biome_mountain; continue; }
+
+        if(t[i] < 0.30f)
         {
-            b[i] = (m[i] < 0.5f) ? biome_deepwater : biome_water;
+            b[i] = (m[i] < 0.5f) ? biome_tundra : biome_taiga;
         }
-        else if(h[i] < 0.35f)
+        else if(t[i] < 0.60f)
         {
-            b[i] = biome_beach;
-        }
-        else if(h[i] < 0.6f)
-        {
-            b[i] = (m[i] < 0.5f) ? biome_plains : biome_forest;
-        }
-        else if(h[i] < 0.88f)
-        {
-            b[i] =biome_mountain;
+            if(m[i] < 0.33f) { b[i] = biome_plains; }
+            else if(m[i] < 0.66f) { b[i] = biome_forest; }
+            else { b[i] = biome_rainforest; }
         }
         else
         {
-            b[i] = biome_snow;
+            if(m[i] < 0.33f) { b[i] = biome_desert; }
+            else if(m[i] < 0.66f) { b[i] = biome_savanna; }
+            else { b[i] = biome_rainforest; }
         }
     }
 }
@@ -229,6 +261,7 @@ int main()
 
     GenerateHeightMap(&map, seed);
     GenerateMoistureMap(&map, seed);
+    GenerateTemperatureMap(&map, seed);
     ClassifyBiomes(&map);
 
     printf("\nGenerated Map(Seed: %u):\n", seed);
