@@ -1,5 +1,6 @@
 #include "utils.h"
 #include <cstdio>
+#include <vector>
 #include <cmath>
 
 struct map_info
@@ -68,6 +69,7 @@ struct terrain_map
     real32 moisture_map[map_info::cell_count];
     real32 temperature_map[map_info::cell_count];
     uint8 biome_map[map_info::cell_count];
+    uint8 river_map[map_info::cell_count];
     int width_cells;
     int height_cells;
 };
@@ -200,16 +202,123 @@ internal void ClassifyBiomes(terrain_map *map)
     }
 }
 
-internal void TallyBiomes(terrain_map *map, int counts[biome_count])
+internal void GenerateRivers(terrain_map* map, uint32 seed)
 {
-    for(int j = 0; j < biome_count; ++j)
-        { counts[j] = 0; }
-    
     for(int i = 0; i < map_info::cell_count; ++i)
-        { counts[map->biome_map[i]]++; }
+    { map->river_map[i] = 0; }
+
+    local_persist int candidates[map_info::cell_count];
+    int candidate_count = 0;
+
+    for(int i = 0; i < map_info::cell_count; ++i)
+    {
+        uint8 b = map->biome_map[i];
+        bool32  is_land = (b != biome_deepwater && b != biome_water && b != biome_beach);
+        bool32 is_high = (map->height_map[i] > 0.68f);
+        if(is_land && is_high)
+        { candidates[candidate_count++] = i; }
+    }
+    if(candidate_count == 0) { return; }
+
+    constexpr int river_count = 15;
+    uint32 state = seed ^ 0xF00DCAFE;
+
+    constexpr int dx[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
+    constexpr int dy[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
+    for(int r = 0; r < river_count; ++r)
+    {
+        state = LinearCongruentialGenerator(state);
+        int current = candidates[state % candidate_count];
+
+        for(int step = 0; step < map_info::cell_count; ++step)
+        {
+            uint8 b = map->biome_map[current];
+            if(b == biome_deepwater || b == biome_water) { break; }
+
+            map->river_map[current] = 1;
+
+            int cx = current % map->width_cells;
+            int cy = current / map->width_cells;
+
+            int best_idx = -1;
+            real32 best_height = map->height_map[current];
+
+            for(int d = 0; d < 8; ++d)
+            {
+                int nx = cx + dx[d];
+                int ny = cy + dy[d];
+                if(nx < 0 || nx >= map->width_cells || 
+                   ny < 0 || ny >= map->height_cells)
+                { continue; }
+
+                int ni = ny * map->width_cells + nx;
+                if(map->height_map[ni] < best_height)
+                {
+                    best_height = map->height_map[ni];
+                    best_idx = ni;
+                }
+            }
+            if(best_idx == -1) { break; }
+            current = best_idx;
+        }
+    }
 }
 
-internal void RenderMapToFile(terrain_map *map, const char *filename)
+internal void FloodFillRiver(terrain_map* map, int current, 
+    std::vector<bool32> &visited)
+{
+    constexpr int dx[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
+    constexpr int dy[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
+    int width = map->width_cells;
+    int height = map->height_cells;
+
+    visited[current] = true;
+
+    int cx = current % width;
+    int cy = current / width;
+
+    for(int d = 0; d < 8; ++d)
+    {
+        int nx = cx + dx[d];
+        int ny = cy + dy[d];
+        if(nx < 0 || nx >= width || ny < 0 || ny >= height)
+        { continue; }
+
+        int ni = ny * width + nx;
+        if(map->river_map[ni] == 1 && !visited[ni])
+        {
+            FloodFillRiver(map, ni, visited);
+        }
+    }
+}
+
+internal void TallyBiomes(terrain_map *map, int biome_counts[biome_count], 
+    int &river_cell_count, int &river_count)
+{
+    for(int j = 0; j < biome_count; ++j) { biome_counts[j] = 0; }
+    river_cell_count = 0;
+    river_count = 0;
+
+    std::vector<bool32> visited(map_info::cell_count, false);
+    for(int i = 0; i < map_info::cell_count; ++i)
+    {
+        if(map->river_map[i] != 0)
+        {
+            river_cell_count++;
+            if(!visited[i])
+            {
+                river_count++;
+                FloodFillRiver(map, i, visited);
+            }
+        }
+        else
+        {
+            biome_counts[map->biome_map[i]]++;
+        }
+    }
+}
+
+internal void RenderMapToFile(terrain_map *map, const char *filename, uint32 &seed)
 {
     biome_info info;
     FILE *fp = fopen(filename, "w");
@@ -217,19 +326,27 @@ internal void RenderMapToFile(terrain_map *map, const char *filename)
         printf("Error: could not open file %s\n", filename);
         return;
     }
+    fprintf(fp, "Generated Map(Seed: %u):\n\n", seed);
     for(int y = 0; y < map->height_cells; ++y)
     {
         for(int x = 0; x < map->width_cells; ++x)
         {
-            uint8 biome_id = map->biome_map[y * map->width_cells + x];
-            char glyph = info.biome_glyphs[biome_id];
+            int i = y * map->width_cells + x;
+            char glyph;
+            if(map->river_map[i]) { glyph = '|'; }
+            else
+            {
+                uint8 biome_id = map->biome_map[i];
+                glyph = info.biome_glyphs[biome_id];
+            }
             fputc(glyph, fp);
         }
         fputc('\n', fp);
     }
 
     int biome_counts[biome_count];
-    TallyBiomes(map, biome_counts);
+    int river_cell_count, river_count;
+    TallyBiomes(map, biome_counts, river_cell_count, river_count);
 
     fprintf(fp, "\nBiome Coverage:\n");
     for(int i = 0; i < biome_count; ++i)
@@ -240,6 +357,10 @@ internal void RenderMapToFile(terrain_map *map, const char *filename)
             biome_counts[i], 
             (real32)biome_counts[i] / (real32)map_info::cell_count * 100.0f);
     }
+    fprintf(fp, "\nRiver Information:\n");
+    fprintf(fp, " %-12s: %c %4d cells (%5.2f%%)\n", "River", '|', river_cell_count, 
+        (real32)river_cell_count / (real32)map_info::cell_count * 100.0f);
+    fprintf(fp, " Number of Rivers: %d\n", river_count);
     fclose(fp);
 }
 
@@ -263,9 +384,9 @@ int main()
     GenerateMoistureMap(&map, seed);
     GenerateTemperatureMap(&map, seed);
     ClassifyBiomes(&map);
+    GenerateRivers(&map, seed);
 
-    printf("\nGenerated Map(Seed: %u):\n", seed);
-    RenderMapToFile(&map, "generated_map.txt");
+    RenderMapToFile(&map, "generated_map.txt", seed);
 
     QueryPerformanceCounter(&end_time);
     real32 total_elapsed = (real32)(end_time.QuadPart - start_time.QuadPart) / 
