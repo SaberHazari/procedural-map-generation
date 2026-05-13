@@ -6,7 +6,7 @@
 
 #define global_variable static
 #define local_persist static
-#define internal static
+#define internal_func static
 
 typedef uint8_t uint8;
 typedef uint16_t uint16;
@@ -32,14 +32,14 @@ struct perm_table
     real32 gradients[table_size];
 };
 
-internal uint32 LinearCongruentialGenerator(uint32 state)
+internal_func uint32 LinearCongruentialGenerator(uint32 state)
 {
     const uint32 a = 1664525;
     const uint32 c = 1013904223;
     return a * state + c;
 }
 
-internal void GetMemoryUsage(memory_snapshot *snapshot)
+internal_func void GetMemoryUsage(memory_snapshot *snapshot)
 {
     HANDLE process = GetCurrentProcess();
     PROCESS_MEMORY_COUNTERS pmc;
@@ -53,7 +53,7 @@ internal void GetMemoryUsage(memory_snapshot *snapshot)
     }
 }
 
-internal void PermutationTable(perm_table *table, uint32 seed)
+internal_func void PermutationTable(perm_table *table, uint32 seed)
 {
     for(int i = 0; i < perm_table::table_size; ++i)
     {

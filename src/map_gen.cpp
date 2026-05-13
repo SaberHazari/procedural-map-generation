@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <vector>
 #include <cmath>
+#include <queue>
 
 struct map_info
 {
@@ -74,13 +75,13 @@ struct terrain_map
     int height_cells;
 };
 
-internal real32 LatticeNoise(int x, int y, const perm_table *table)
+internal_func real32 LatticeNoise(int x, int y, const perm_table *table)
 {
     int index = table->perm[(table->perm[x & 255] + y) & 255];
     return table->gradients[index];
 }
 
-internal real32 ValueNoise(real32 fx, real32 fy, const perm_table *table)
+internal_func real32 ValueNoise(real32 fx, real32 fy, const perm_table *table)
 {
     int ix = (int)std::floorf(fx);
     int iy = (int)std::floorf(fy);
@@ -101,7 +102,7 @@ internal real32 ValueNoise(real32 fx, real32 fy, const perm_table *table)
     return lerp_value;
 }
 
-internal real32 FractionalBrownianMotion(real32 fx, real32 fy, 
+internal_func real32 FractionalBrownianMotion(real32 fx, real32 fy, 
     uint32 seed)
 {
     real32 value = 0.0f;
@@ -122,7 +123,7 @@ internal real32 FractionalBrownianMotion(real32 fx, real32 fy,
     return value / max_value;
 }
 
-internal void GenerateHeightMap(terrain_map *map, uint32 seed)
+internal_func void GenerateHeightMap(terrain_map *map, uint32 seed)
 {
     for(int i = 0; i < map_info::cell_count; ++i)
     {
@@ -141,7 +142,7 @@ internal void GenerateHeightMap(terrain_map *map, uint32 seed)
     }
 }
 
-internal void GenerateMoistureMap(terrain_map *map, uint32 seed)
+internal_func void GenerateMoistureMap(terrain_map *map, uint32 seed)
 {
     uint32 moisture_seed = seed ^ 0xDEADBEEF;
 
@@ -155,7 +156,7 @@ internal void GenerateMoistureMap(terrain_map *map, uint32 seed)
     }
 }
 
-internal void GenerateTemperatureMap(terrain_map *map, uint32 seed)
+internal_func void GenerateTemperatureMap(terrain_map *map, uint32 seed)
 {
     uint32 temp_seed = seed ^ 0xBEEFDEAD;
 
@@ -169,7 +170,7 @@ internal void GenerateTemperatureMap(terrain_map *map, uint32 seed)
     }
 }
 
-internal void ClassifyBiomes(terrain_map *map)
+internal_func void ClassifyBiomes(terrain_map *map)
 {
     real32 *h = map->height_map;
     real32 *m = map->moisture_map;
@@ -202,7 +203,7 @@ internal void ClassifyBiomes(terrain_map *map)
     }
 }
 
-internal void GenerateRivers(terrain_map* map, uint32 seed)
+internal_func void GenerateRivers(terrain_map* map, uint32 seed)
 {
     for(int i = 0; i < map_info::cell_count; ++i)
     { map->river_map[i] = 0; }
@@ -264,7 +265,7 @@ internal void GenerateRivers(terrain_map* map, uint32 seed)
     }
 }
 
-internal void FloodFillRiver(terrain_map* map, int current, 
+internal_func void FloodFillRiver(terrain_map* map, int start, 
     std::vector<bool32> &visited)
 {
     constexpr int dx[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
@@ -272,27 +273,38 @@ internal void FloodFillRiver(terrain_map* map, int current,
     int width = map->width_cells;
     int height = map->height_cells;
 
-    visited[current] = true;
+    std::queue<int> q;
+    q.push(start);
+    visited[start] = true;
 
-    int cx = current % width;
-    int cy = current / width;
-
-    for(int d = 0; d < 8; ++d)
+    while(!q.empty())
     {
-        int nx = cx + dx[d];
-        int ny = cy + dy[d];
-        if(nx < 0 || nx >= width || ny < 0 || ny >= height)
-        { continue; }
+        int current = q.front();
+        q.pop();
 
-        int ni = ny * width + nx;
-        if(map->river_map[ni] == 1 && !visited[ni])
+        int cx = current % width;
+        int cy = current / width;
+
+        for(int d = 0; d < 8; ++d)
         {
-            FloodFillRiver(map, ni, visited);
+            int nx = cx + dx[d];
+            int ny = cy + dy[d];
+
+            if(nx < 0 || nx >= width || ny < 0 || ny >= height)
+                continue;
+
+            int ni = ny * width + nx;
+
+            if(map->river_map[ni] == 1 && !visited[ni])
+            {
+                visited[ni] = true;
+                q.push(ni);
+            }
         }
     }
 }
 
-internal void TallyBiomes(terrain_map *map, int biome_counts[biome_count], 
+internal_func void TallyBiomes(terrain_map *map, int biome_counts[biome_count], 
     int &river_cell_count, int &river_count)
 {
     for(int j = 0; j < biome_count; ++j) { biome_counts[j] = 0; }
@@ -318,7 +330,7 @@ internal void TallyBiomes(terrain_map *map, int biome_counts[biome_count],
     }
 }
 
-internal void RenderMapToFile(terrain_map *map, const char *filename, uint32 &seed)
+internal_func void RenderMapToFile(terrain_map *map, const char *filename, uint32 &seed)
 {
     biome_info info;
     FILE *fp = fopen(filename, "w");
