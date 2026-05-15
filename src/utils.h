@@ -20,6 +20,23 @@ typedef float real32;
 typedef double real64;
 typedef int32_t bool32;
 
+namespace hex_colors
+{
+    inline constexpr const char *dark_blue = "#1a1a6b";
+    inline constexpr const char *bright_blue = "#4d94ff";
+    inline constexpr const char *bright_yellow = "#ffff99";
+    inline constexpr const char *dark_yellow = "#ccaa00";
+    inline constexpr const char *green = "#00aa00";
+    inline constexpr const char *bright_green = "#00ff00";
+    inline constexpr const char *bold_green = "#00aa00";
+    inline constexpr const char *bold_cyan = "#00ffff";
+    inline constexpr const char *cyan = "#00ffff";
+    inline constexpr const char *gray_white = "#cccccc";
+    inline constexpr const char *dark_gray = "#404040";
+    inline constexpr const char *bright_white = "#ffffff";
+    inline constexpr const char *river_blue = "#0066ff";
+}
+
 struct memory_snapshot
 {
     size_t working_set_size;

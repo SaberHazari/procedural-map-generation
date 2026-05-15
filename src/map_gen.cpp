@@ -48,6 +48,20 @@ struct biome_info
         "Mountain",
         "Snow"
     };
+    const char *biome_colors[biome_count] = {
+        hex_colors::dark_blue,
+        hex_colors::bright_blue,
+        hex_colors::bright_yellow,
+        hex_colors::dark_yellow,
+        hex_colors::green,
+        hex_colors::bright_green,
+        hex_colors::bold_green,
+        hex_colors::bold_cyan,
+        hex_colors::cyan,
+        hex_colors::gray_white,
+        hex_colors::dark_gray,
+        hex_colors::bright_white
+    };
     char biome_glyphs[biome_count] = {
         '~',
         '-',
@@ -136,7 +150,7 @@ internal_func void GenerateHeightMap(terrain_map *map, uint32 seed)
         real32 dist = 1.0f - (1.0f - norm_x * norm_x * 4.0f) * 
             (1.0f - norm_y * norm_y * 4.0f);
         dist = dist < 0.0f ? 0.0f : (dist > 1.0f ? 1.0f : dist);
-        h = (h - dist * 0.8f + 1.0f) * 0.5f;
+        h = (h - dist * 1.5f + 1.0f) * 0.5f;
         h = h < 0.0f ? 0.0f : (h > 1.0f ? 1.0f : h);
         map->height_map[i] = h;
     }
@@ -330,50 +344,112 @@ internal_func void TallyBiomes(terrain_map *map, int biome_counts[biome_count],
     }
 }
 
-internal_func void RenderMapToFile(terrain_map *map, const char *filename, uint32 &seed)
+internal_func void RenderMapToHTML(terrain_map *map, const char *filename, uint32 seed)
 {
     biome_info info;
-    FILE *fp = fopen(filename, "w");
-    if (!fp) {
-        printf("Error: could not open file %s\n", filename);
-        return;
-    }
-    fprintf(fp, "Generated Map(Seed: %u):\n\n", seed);
+    
+    local_persist char file_buffer[map_info::cell_count * 50 + 16 * 1024];
+    int pos = 0;
+
+    pos += sprintf(file_buffer + pos, 
+        "<!DOCTYPE html>\n"
+        "<html>\n"
+        "<head>\n"
+        "    <title>Procedural Map (Seed: %u)</title>\n"
+        "    <style>\n"
+        "        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f0f0f0; }\n"
+        "        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }\n"
+        "        h1 { color: #333; }\n"
+        "        .map-container { margin: 20px 0; font-family: monospace; line-height: 1.2; }\n"
+        "        .map-cell { display: inline-block; width: 16px; height: 16px; text-align: center; line-height: 16px; font-weight: bold; font-size: 12px; }\n"
+        "        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }\n"
+        "        .stat-section { border: 1px solid #ddd; padding: 15px; border-radius: 4px; }\n"
+        "        .stat-section h3 { margin-top: 0; color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }\n"
+        "        .stat-row { display: flex; align-items: center; margin: 8px 0; }\n"
+        "        .stat-color { display: inline-block; width: 20px; height: 20px; margin-right: 10px; border: 1px solid #999; }\n"
+        "        .stat-name { flex: 1; }\n"
+        "        .stat-value { font-weight: bold; color: #0066cc; }\n"
+        "    </style>\n"
+        "</head>\n"
+        "<body>\n"
+        "    <div class=\"container\">\n"
+        "        <h1>Procedural Map Generator</h1>\n"
+        "        <p><strong>Seed:</strong> %u</p>\n"
+        "        <div class=\"map-container\">\n", seed, seed);
+
     for(int y = 0; y < map->height_cells; ++y)
     {
         for(int x = 0; x < map->width_cells; ++x)
         {
             int i = y * map->width_cells + x;
             char glyph;
-            if(map->river_map[i]) { glyph = '|'; }
+            const char *color;
+            
+            if(map->river_map[i])
+            {
+                glyph = '|';
+                color = hex_colors::river_blue;
+            }
             else
             {
-                uint8 biome_id = map->biome_map[i];
-                glyph = info.biome_glyphs[biome_id];
+                uint8 b = map->biome_map[i];
+                glyph = info.biome_glyphs[b];
+                color = info.biome_colors[b];
             }
-            fputc(glyph, fp);
+            
+            pos += sprintf(file_buffer + pos, 
+                "<div class=\"map-cell\" style=\"background-color: %s; color: white;\">%c</div>", 
+                color, glyph);
         }
-        fputc('\n', fp);
+        pos += sprintf(file_buffer + pos, "<br>\n");
     }
+
+    pos += sprintf(file_buffer + pos, "        </div>\n        <div class=\"stats\">\n");
 
     int biome_counts[biome_count];
     int river_cell_count, river_count;
     TallyBiomes(map, biome_counts, river_cell_count, river_count);
 
-    fprintf(fp, "\nBiome Coverage:\n");
+    pos += sprintf(file_buffer + pos, "            <div class=\"stat-section\">\n");
+    pos += sprintf(file_buffer + pos, "                <h3>Biome Coverage</h3>\n");
     for(int i = 0; i < biome_count; ++i)
     {
-        fprintf(fp, " %-12s: %c %4d cells (%5.2f%%)\n", 
-            info.biome_names[i], 
-            info.biome_glyphs[i], 
-            biome_counts[i], 
-            (real32)biome_counts[i] / (real32)map_info::cell_count * 100.0f);
+        real32 percentage = (real32)biome_counts[i] / (real32)map_info::cell_count * 100.0f;
+        pos += sprintf(file_buffer + pos, 
+            "                <div class=\"stat-row\">\n"
+            "                    <div class=\"stat-color\" style=\"background-color: %s;\"></div>\n"
+            "                    <span class=\"stat-name\">%s:</span>\n"
+            "                    <span class=\"stat-value\">%d cells (%.2f%%)</span>\n"
+            "                </div>\n",
+            info.biome_colors[i], info.biome_names[i], biome_counts[i], percentage);
     }
-    fprintf(fp, "\nRiver Information:\n");
-    fprintf(fp, " %-12s: %c %4d cells (%5.2f%%)\n", "River", '|', river_cell_count, 
-        (real32)river_cell_count / (real32)map_info::cell_count * 100.0f);
-    fprintf(fp, " Number of Rivers: %d\n", river_count);
+    pos += sprintf(file_buffer + pos, "            </div>\n");
+
+    pos += sprintf(file_buffer + pos, "            <div class=\"stat-section\">\n");
+    pos += sprintf(file_buffer + pos, "                <h3>River Information</h3>\n");
+    real32 river_percentage = (real32)river_cell_count / (real32)map_info::cell_count * 100.0f;
+    pos += sprintf(file_buffer + pos, 
+        "                <div class=\"stat-row\">\n"
+        "                    <div class=\"stat-color\" style=\"background-color: %s;\"></div>\n"
+        "                    <span class=\"stat-name\">River Cells:</span>\n"
+        "                    <span class=\"stat-value\">%d cells (%.2f%%)</span>\n"
+        "                </div>\n"
+        "                <div class=\"stat-row\">\n"
+        "                    <span class=\"stat-name\">Number of Rivers:</span>\n"
+        "                    <span class=\"stat-value\">%d</span>\n"
+        "                </div>\n"
+        "            </div>\n"
+        "        </div>\n"
+        "    </div>\n"
+        "</body>\n"
+        "</html>\n",
+        hex_colors::river_blue, river_cell_count, river_percentage, river_count);
+
+    FILE *fp = fopen(filename, "wb");
+    if(!fp) { printf("Error: could not open %s\n", filename); return; }
+    fwrite(file_buffer, 1, pos, fp);
     fclose(fp);
+    printf("Map saved to %s\n", filename);
 }
 
 int main()
@@ -398,7 +474,7 @@ int main()
     ClassifyBiomes(&map);
     GenerateRivers(&map, seed);
 
-    RenderMapToFile(&map, "generated_map.txt", seed);
+    RenderMapToHTML(&map, "generated_map.html", seed);
 
     QueryPerformanceCounter(&end_time);
     real32 total_elapsed = (real32)(end_time.QuadPart - start_time.QuadPart) / 
