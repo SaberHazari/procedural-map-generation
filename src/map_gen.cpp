@@ -392,7 +392,6 @@ internal_func void RenderMapToFile(terrain_map *map, const char *filename, uint3
 
 internal_func void RenderMapToPPM(terrain_map *map, const char *filename)
 {
-    biome_info info;
     local_persist const uint8 river_color[3] = { 60, 140, 220 };
 
     const int scale = 8;
@@ -413,7 +412,7 @@ internal_func void RenderMapToPPM(terrain_map *map, const char *filename)
                 int i = y * map->width_cells + x;
                 uint8 biome_id = map->biome_map[i];
                 const uint8 *color = map->river_map[i] ? 
-                    river_color : info.biome_colors[biome_id];
+                    river_color : biome_info::biome_colors[biome_id];
 
                 for(int px = 0; px < scale; ++px)
                 { fwrite(color, 1, 3, fp); }
