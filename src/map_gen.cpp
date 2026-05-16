@@ -1,8 +1,6 @@
 #include "utils.h"
 #include <cstdio>
-#include <vector>
 #include <cmath>
-#include <queue>
 
 struct map_info
 {
@@ -280,21 +278,22 @@ internal_func void GenerateRivers(terrain_map* map, uint32 seed)
 }
 
 internal_func void FloodFillRiver(terrain_map* map, int start, 
-    std::vector<bool32> &visited)
+    bool32 *visited)
 {
     constexpr int dx[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
     constexpr int dy[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
     int width = map->width_cells;
     int height = map->height_cells;
 
-    std::queue<int> q;
-    q.push(start);
+    local_persist int queue[map_info::cell_count];
+    int head = 0;
+    int tail = 0;
+    queue[tail++] = start;
     visited[start] = true;
 
-    while(!q.empty())
+    while(head != tail)
     {
-        int current = q.front();
-        q.pop();
+        int current = queue[head++];
 
         int cx = current % width;
         int cy = current / width;
@@ -312,7 +311,7 @@ internal_func void FloodFillRiver(terrain_map* map, int start,
             if(map->river_map[ni] == 1 && !visited[ni])
             {
                 visited[ni] = true;
-                q.push(ni);
+                queue[tail++] = ni;
             }
         }
     }
@@ -321,11 +320,13 @@ internal_func void FloodFillRiver(terrain_map* map, int start,
 internal_func void TallyBiomes(terrain_map *map, int biome_counts[biome_count], 
     int &river_cell_count, int &river_count)
 {
-    for(int j = 0; j < biome_count; ++j) { biome_counts[j] = 0; }
+    for(int k = 0; k < biome_count; ++k) { biome_counts[k] = 0; }
     river_cell_count = 0;
     river_count = 0;
 
-    std::vector<bool32> visited(map_info::cell_count, false);
+    local_persist bool32 visited[map_info::cell_count];
+    for(int j = 0; j < map_info::cell_count; ++j)
+    { visited[j] = false; }
     for(int i = 0; i < map_info::cell_count; ++i)
     {
         if(map->river_map[i] != 0)
