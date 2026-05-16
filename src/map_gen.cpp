@@ -390,6 +390,50 @@ internal_func void RenderMapToFile(terrain_map *map, const char *filename, uint3
     fclose(fp);
 }
 
+internal_func real32 GetNormalizedHeight(uint8 biome_id, real32 h)
+{
+    real32 min_h = 0.0f;
+    real32 max_h = 1.0f;
+
+    switch(biome_id)
+    {
+        case biome_deepwater: { min_h = 0.0f; max_h = 0.15f; break; }
+        case biome_water: { min_h = 0.15f; max_h = 0.30f; break; }
+        case biome_beach: { min_h = 0.30f; max_h = 0.35f; break; }
+        case biome_mountain:
+        case biome_snow: { min_h = 0.75f; max_h = 1.0f; break; }
+        default: { min_h = 0.35f; max_h = 0.75f; break; }
+    }
+
+    real32 norm_h = (h - min_h) / (max_h - min_h);
+    norm_h = norm_h < 0.0f ? 0.0f : (norm_h > 1.0f ? 1.0f : norm_h);
+    return norm_h;
+}
+
+internal_func real32 GetBiomeShading(uint8 biome_id, real32 norm_h)
+{
+    real32 min_shade, max_shade;
+
+    if(biome_id == biome_deepwater || biome_id == biome_water)
+    {
+        min_shade = 0.5f;
+        max_shade = 1.0f;
+    }
+    else if(biome_id == biome_mountain || biome_id == biome_snow)
+    {
+        min_shade = 0.8f;
+        max_shade = 1.3f;
+    }
+    else
+    {
+        min_shade = 0.7f;
+        max_shade = 1.2f;
+    }
+
+    real32 shading = min_shade + norm_h * (max_shade - min_shade);
+    return shading;
+}
+
 internal_func void RenderMapToPPM(terrain_map *map, const char *filename)
 {
     local_persist const uint8 river_color[3] = { 60, 140, 220 };
@@ -410,12 +454,32 @@ internal_func void RenderMapToPPM(terrain_map *map, const char *filename)
             for(int x = 0; x < map->width_cells; ++x)
             {
                 int i = y * map->width_cells + x;
-                uint8 biome_id = map->biome_map[i];
-                const uint8 *color = map->river_map[i] ? 
-                    river_color : biome_info::biome_colors[biome_id];
+                uint8 final_color[3];
+                if(map->river_map[i])
+                {
+                    for(int i = 0; i < 3; ++i)
+                    { final_color[i] = river_color[i]; }
+                }
+                else
+                {
+                    uint8 biome_id = map->biome_map[i];
+                    real32 cell_height = map->height_map[i];
+                    const uint8 *base_color = biome_info::biome_colors[biome_id];
+
+                    real32 norm_h = GetNormalizedHeight(biome_id, cell_height);
+                    real32 shading = GetBiomeShading(biome_id, norm_h);
+
+                    for(int j = 0; j < 3; ++j)
+                    {
+                        real32 shaded_channel = (real32)base_color[j] * shading;
+                        shaded_channel = shaded_channel < 0.0f ? 0.0f : 
+                            (shaded_channel > 255.0f ? 255.0f : shaded_channel);
+                        final_color[j] = (uint8)shaded_channel;
+                    }
+                }
 
                 for(int px = 0; px < scale; ++px)
-                { fwrite(color, 1, 3, fp); }
+                { fwrite(final_color, 1, 3, fp); }
             }
         }
     }
