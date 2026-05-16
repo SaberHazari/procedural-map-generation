@@ -457,8 +457,8 @@ internal_func void RenderMapToPPM(terrain_map *map, const char *filename)
                 uint8 final_color[3];
                 if(map->river_map[i])
                 {
-                    for(int i = 0; i < 3; ++i)
-                    { final_color[i] = river_color[i]; }
+                    for(int k = 0; k < 3; ++k)
+                    { final_color[k] = river_color[k]; }
                 }
                 else
                 {
